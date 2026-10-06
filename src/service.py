@@ -55,9 +55,49 @@ class Service:
         )
         return self.get_item(item_id)
 
+    def add_receipt(self, item_id, payload, actor, role, region=None):
+        if not actor or not role:
+            raise DomainError("identity_required", "需要用户身份和角色", 401)
+        if role not in rules.RECEIPT_ROLES:
+            raise DomainError("forbidden", "当前角色不能登记回执", 403)
+        receipt_number = domain.require_text(payload, "receipt_number")
+        receipt_type = domain.require_text(payload, "receipt_type")
+        received_at = domain.parse_timestamp(payload, "received_at")
+        action_id = payload.get("action_id")
+        if action_id is not None:
+            try:
+                action_id = int(action_id)
+            except (TypeError, ValueError):
+                raise DomainError("invalid_action_id", "关联的处置动作 id 无效")
+        receipt_payload = {
+            "note": payload.get("note", ""),
+            "reference": payload.get("reference", ""),
+        }
+        return self.repository.add_receipt(
+            item_id,
+            receipt_number,
+            receipt_type,
+            receipt_payload,
+            received_at,
+            action_id,
+            actor,
+            role,
+        )
+
+    def reconcile(self, item_id):
+        return self.repository.reconcile_receipts(item_id)
+
+    def verify_chain(self, item_id):
+        return self.repository.verify_audit_chain(item_id)
+
+    def backfill(self):
+        return self.repository.backfill_summaries()
+
     def get_item(self, item_id):
         item = self.repository.get_item(item_id)
         item["sources"] = self.repository.list_sources(item_id)
+        item["actions"] = self.repository.list_actions(item_id)
+        item["receipts"] = self.repository.list_receipts(item_id)
         item["audit"] = self.repository.audit_trail(item_id)
         item["assessment"] = rules.assess(item["payload"])
         return item

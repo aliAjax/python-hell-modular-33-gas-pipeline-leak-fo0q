@@ -41,7 +41,11 @@ def build_handler(service, static_dir):
         def _error(self, exc):
             status = getattr(exc, "status", 500)
             code = getattr(exc, "code", "internal_error")
-            self._send(status, {"error": code, "message": str(exc)})
+            body = {"error": code, "message": str(exc)}
+            details = getattr(exc, "details", None)
+            if details:
+                body.update(details)
+            self._send(status, body)
 
         def do_GET(self):
             try:
@@ -58,6 +62,10 @@ def build_handler(service, static_dir):
                 if len(parts) == 4 and parts[:2] == ["api", "items"] and parts[3] == "audit":
                     item = service.get_item(int(parts[2]))
                     return self._send(200, {"events": item["audit"]})
+                if len(parts) == 4 and parts[:2] == ["api", "items"] and parts[3] == "reconciliation":
+                    return self._send(200, service.reconcile(int(parts[2])))
+                if len(parts) == 4 and parts[:2] == ["api", "items"] and parts[3] == "chain":
+                    return self._send(200, service.verify_chain(int(parts[2])))
                 if path == "/":
                     file_path = os.path.join(static_dir, "index.html")
                     with open(file_path, "rb") as handle:
@@ -80,6 +88,12 @@ def build_handler(service, static_dir):
                     return self._send(201, service.create_item(payload, actor, role, region))
                 if len(parts) == 4 and parts[:2] == ["api", "items"] and parts[3] == "sources":
                     return self._send(201, service.add_source(int(parts[2]), payload, actor, role, region))
+                if len(parts) == 4 and parts[:2] == ["api", "items"] and parts[3] == "receipts":
+                    result = service.add_receipt(int(parts[2]), payload, actor, role, region)
+                    # 新回执 201；晚到的重复回执只记一次，返回 200 并标记 duplicate。
+                    return self._send(200 if result.get("duplicate") else 201, result)
+                if parts == ["api", "backfill"]:
+                    return self._send(200, {"backfilled": service.backfill()})
                 if len(parts) == 4 and parts[:2] == ["api", "items"] and parts[3] == "actions":
                     action = payload.pop("action", "")
                     if not action:

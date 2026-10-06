@@ -16,6 +16,20 @@ ENFORCE_REGION = False
 REGION_SENSITIVE_ACTIONS = set()
 ACTION_REQUIRES_VERSION = {"isolate", "repair", "pressure_test", "restore", "cancel"}
 
+# 需要外部回执对账的处置动作：这些动作落下后，应有对应回执按编号入账。
+RECEIPT_REQUIRED_ACTIONS = ("isolate", "repair", "pressure_test", "restore")
+
+# 回执类型与处置动作的对应关系，用于在未显式关联 action_id 时按类型对账。
+RECEIPT_TYPE_TO_ACTION = {
+    "valve_operation": "isolate",
+    "repair": "repair",
+    "pressure_test": "pressure_test",
+    "restoration": "restore",
+}
+
+# 允许登记回执的角色。
+RECEIPT_ROLES = {"dispatcher", "supervisor", "responder"}
+
 
 def assess(payload):
     pressure = float(payload.get("pressure_drop_kpa", 0))
