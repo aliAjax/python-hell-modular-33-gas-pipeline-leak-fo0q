@@ -12,12 +12,18 @@ def main():
     parser.add_argument("--db", default=os.path.join(os.path.dirname(__file__), "data.db"))
     parser.add_argument("--port", type=int, default=8333)
     parser.add_argument("--init", action="store_true", help="initialize the database and exit")
+    parser.add_argument("--backfill", action="store_true",
+                        help="backfill action/receipt digests for legacy rows in time order and exit")
     args = parser.parse_args()
 
     repo = Repository(args.db)
     repo.initialize()
     if args.init:
         print("initialized: %s" % args.db)
+        return
+    if args.backfill:
+        stats = repo.backfill_digests()
+        print("backfill complete: %s" % stats)
         return
 
     service = Service(repo)

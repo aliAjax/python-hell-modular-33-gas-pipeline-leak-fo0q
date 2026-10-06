@@ -9,8 +9,9 @@ class DomainError(Exception):
 
 
 class ConflictError(DomainError):
-    def __init__(self, code, message):
+    def __init__(self, code, message, details=None):
         super().__init__(code, message, 409)
+        self.details = details or {}
 
 
 class NotFoundError(DomainError):
@@ -87,3 +88,45 @@ def normalize_source(payload):
         "note": payload.get("note", ""),
     }
     return result
+
+
+def normalize_expected_receipts(payload):
+    """从动作请求里取出该动作预期收到的外部回执编号列表（去重、保序）。"""
+    raw = payload.get("expected_receipts", [])
+    if raw in (None, ""):
+        return []
+    if not isinstance(raw, list):
+        raise DomainError("invalid_expected_receipts", "expected_receipts 必须是编号数组")
+    result = []
+    seen = set()
+    for value in raw:
+        if not isinstance(value, str) or not value.strip():
+            raise DomainError("invalid_receipt_no", "回执编号必须是非空字符串")
+        code = value.strip()
+        if code in seen:
+            raise DomainError("duplicate_expected_receipt", "同一动作里回执编号不能重复: %s" % code)
+        seen.add(code)
+        result.append(code)
+    return result
+
+
+def normalize_receipt(payload):
+    """外部送达的回执：编号必填，时间可选（缺省由存储层补）。"""
+    receipt_no = require_text(payload, "receipt_no")
+    delivered_at = None
+    if payload.get("delivered_at"):
+        delivered_at = parse_timestamp(payload, "delivered_at")
+    document = payload.get("document", "")
+    if document is None:
+        document = ""
+    if not isinstance(document, str):
+        raise DomainError("invalid_document", "回执内容必须是字符串")
+    issuer = payload.get("issuer", "")
+    if not isinstance(issuer, str):
+        raise DomainError("invalid_issuer", "回执出具方必须是字符串")
+    return {
+        "receipt_no": receipt_no,
+        "delivered_at": delivered_at,
+        "issuer": issuer.strip(),
+        "document": document.strip(),
+    }

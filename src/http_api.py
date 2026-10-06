@@ -41,7 +41,11 @@ def build_handler(service, static_dir):
         def _error(self, exc):
             status = getattr(exc, "status", 500)
             code = getattr(exc, "code", "internal_error")
-            self._send(status, {"error": code, "message": str(exc)})
+            body = {"error": code, "message": str(exc)}
+            details = getattr(exc, "details", None)
+            if details:
+                body["details"] = details
+            self._send(status, body)
 
         def do_GET(self):
             try:
@@ -58,6 +62,17 @@ def build_handler(service, static_dir):
                 if len(parts) == 4 and parts[:2] == ["api", "items"] and parts[3] == "audit":
                     item = service.get_item(int(parts[2]))
                     return self._send(200, {"events": item["audit"]})
+                if len(parts) == 4 and parts[:2] == ["api", "items"] and parts[3] == "actions":
+                    return self._send(200, {"actions": service.repository.list_actions(int(parts[2]))})
+                if len(parts) == 4 and parts[:2] == ["api", "items"] and parts[3] == "receipts":
+                    item = service.get_item(int(parts[2]))
+                    return self._send(200, {"receipts": item["receipts"], "deliveries": item["receipt_deliveries"]})
+                if len(parts) == 4 and parts[:2] == ["api", "items"] and parts[3] == "reconciliation":
+                    _actor, role, _region = self._identity()
+                    return self._send(200, service.reconciliation(int(parts[2]), _actor, role))
+                if len(parts) == 4 and parts[:2] == ["api", "items"] and parts[3] == "verify":
+                    _actor, role, _region = self._identity()
+                    return self._send(200, service.verify_chain(int(parts[2]), role))
                 if path == "/":
                     file_path = os.path.join(static_dir, "index.html")
                     with open(file_path, "rb") as handle:
@@ -86,6 +101,8 @@ def build_handler(service, static_dir):
                         raise DomainError("action_required", "缺少 action", 400)
                     expected = payload.pop("expected_version", None)
                     return self._send(200, service.act(int(parts[2]), action, payload, actor, role, expected, region))
+                if len(parts) == 4 and parts[:2] == ["api", "items"] and parts[3] == "receipts":
+                    return self._send(201, service.deliver_receipt(int(parts[2]), payload, actor, role))
                 return self._send(404, {"error": "not_found", "message": "接口不存在"})
             except DomainError as exc:
                 return self._error(exc)

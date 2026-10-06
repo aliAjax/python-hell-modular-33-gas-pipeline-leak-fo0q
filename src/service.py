@@ -49,15 +49,47 @@ class Service:
                 raise DomainError("region_mismatch", "不能处理其他区域的记录", 403)
         if action in rules.ACTION_REQUIRES_VERSION and expected_version is None:
             raise DomainError("expected_version_required", "该操作需要 expected_version", 400)
+        expected_receipts = domain.normalize_expected_receipts(payload)
         new_status, new_payload, event_payload = rules.apply_action(item, action, payload, actor, role)
         self.repository.apply_action(
-            item_id, action, actor, role, new_status, new_payload, event_payload, expected_version
+            item_id, action, actor, role, new_status, new_payload, event_payload,
+            expected_version, expected_receipts,
         )
         return self.get_item(item_id)
+
+    def deliver_receipt(self, item_id, payload, actor, role):
+        # 回执由外部单位送达：值班各角色可录入，监管角色可核对
+        if not actor or not role:
+            raise DomainError("identity_required", "需要用户身份和角色", 401)
+        if role not in {
+            "dispatcher", "responder", "supervisor", "technician", "patrol", "sensor", "regulator",
+        }:
+            raise DomainError("forbidden", "当前角色不能登记回执", 403)
+        self.repository.get_item(item_id)
+        normalized = domain.normalize_receipt(payload)
+        receipt, _accepted = self.repository.deliver_receipt(item_id, normalized, actor, role)
+        return receipt
+
+    def reconciliation(self, item_id, actor=None, role=None):
+        self.repository.get_item(item_id)
+        if role and role not in {
+            "dispatcher", "responder", "supervisor", "technician", "regulator",
+        }:
+            raise DomainError("forbidden", "当前角色不能查看对账结果", 403)
+        return self.repository.reconciliation(item_id)
+
+    def verify_chain(self, item_id, role=None):
+        self.repository.get_item(item_id)
+        if role and role not in {"supervisor", "dispatcher", "regulator"}:
+            raise DomainError("forbidden", "当前角色不能校验处置链", 403)
+        return self.repository.verify_chain(item_id)
 
     def get_item(self, item_id):
         item = self.repository.get_item(item_id)
         item["sources"] = self.repository.list_sources(item_id)
+        item["actions"] = self.repository.list_actions(item_id)
+        item["receipts"] = self.repository.list_receipts(item_id)
+        item["receipt_deliveries"] = self.repository.list_deliveries(item_id)
         item["audit"] = self.repository.audit_trail(item_id)
         item["assessment"] = rules.assess(item["payload"])
         return item
